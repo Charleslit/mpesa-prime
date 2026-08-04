@@ -12,6 +12,13 @@ export type Contact = {
   is_favourite: boolean;
 };
 
+const CONTACTS_KEY = "mpesa_contacts_data";
+
+function isSupabaseConfigured(): boolean {
+  const url = import.meta.env.VITE_SUPABASE_URL;
+  return Boolean(url && !url.includes("placeholder"));
+}
+
 export function useContacts() {
   const { user } = useSession();
   const [contacts, setContacts] = useState<Contact[]>([]);
@@ -23,12 +30,29 @@ export function useContacts() {
       setLoading(false);
       return;
     }
-    const { data } = await supabase
-      .from("contacts")
-      .select("*")
-      .eq("user_id", user.id)
-      .order("created_at", { ascending: true });
-    setContacts((data ?? []) as Contact[]);
+
+    let list: Contact[] = [];
+    try {
+      const stored = localStorage.getItem(CONTACTS_KEY);
+      if (stored) {
+        list = JSON.parse(stored);
+      }
+    } catch {}
+
+    if (isSupabaseConfigured()) {
+      try {
+        const { data } = await supabase
+          .from("contacts")
+          .select("*")
+          .eq("user_id", user.id)
+          .order("created_at", { ascending: true });
+        if (data && data.length > 0) {
+          list = data as Contact[];
+        }
+      } catch {}
+    }
+
+    setContacts(list);
     setLoading(false);
   }, [user]);
 
@@ -38,16 +62,36 @@ export function useContacts() {
 
   const add = async (c: Omit<Contact, "id" | "user_id">) => {
     if (!user) return;
-    const { error } = await supabase
-      .from("contacts")
-      .insert({ ...c, user_id: user.id });
-    if (error) throw error;
-    await load();
+    const newContact: Contact = {
+      ...c,
+      id: `c_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      user_id: user.id,
+    };
+    const updated = [...contacts, newContact];
+    setContacts(updated);
+    try {
+      localStorage.setItem(CONTACTS_KEY, JSON.stringify(updated));
+    } catch {}
+
+    if (isSupabaseConfigured()) {
+      try {
+        await supabase.from("contacts").insert({ ...c, user_id: user.id });
+      } catch {}
+    }
   };
 
   const remove = async (id: string) => {
-    await supabase.from("contacts").delete().eq("id", id);
-    await load();
+    const updated = contacts.filter((item) => item.id !== id);
+    setContacts(updated);
+    try {
+      localStorage.setItem(CONTACTS_KEY, JSON.stringify(updated));
+    } catch {}
+
+    if (isSupabaseConfigured()) {
+      try {
+        await supabase.from("contacts").delete().eq("id", id);
+      } catch {}
+    }
   };
 
   return { contacts, loading, reload: load, add, remove };

@@ -22,9 +22,15 @@ export type ProfileUpdate = Partial<
 
 const PROFILE_KEY = "mpesa_profile_data";
 
+function isSupabaseConfigured(): boolean {
+  const url = import.meta.env.VITE_SUPABASE_URL;
+  return Boolean(url && !url.includes("placeholder"));
+}
+
 async function resolveLogoUrl(path: string | null): Promise<string | null> {
   if (!path) return null;
   if (path.startsWith("http") || path.startsWith("data:")) return path;
+  if (!isSupabaseConfigured()) return path;
   try {
     const { data } = await supabase.storage.from("logos").createSignedUrl(path, 60 * 60);
     return data?.signedUrl ?? null;
@@ -42,7 +48,6 @@ export function useProfile() {
 
   const load = useCallback(async () => {
     if (!user) {
-      // Check if there is saved local profile even for default mode
       try {
         const stored = localStorage.getItem(PROFILE_KEY);
         if (stored) {
@@ -64,7 +69,6 @@ export function useProfile() {
 
     setLoading(true);
 
-    // 1. Try local storage first for immediate responsive load
     let currentProfile: Profile = {
       id: (user as any).id || "admin",
       email: (user as any).email || null,
@@ -83,30 +87,30 @@ export function useProfile() {
       }
     } catch {}
 
-    // 2. Query Supabase if present
-    try {
-      const [{ data: p }, { data: roles }] = await Promise.all([
-        supabase.from("profiles").select("*").eq("id", user.id).maybeSingle(),
-        supabase.from("user_roles").select("role").eq("user_id", user.id),
-      ]);
-      if (p) {
-        currentProfile = {
-          ...currentProfile,
-          ...p,
-          balance: Number(p.balance),
-          fuliza_balance: Number(p.fuliza_balance),
-          airtime_balance: Number(p.airtime_balance),
-        };
-      }
-      if (roles?.some((r) => r.role === "super_admin")) {
-        setIsSuperAdmin(true);
-      } else if ((user as any).is_admin) {
-        setIsSuperAdmin(true);
-      }
-    } catch {
-      if ((user as any).is_admin) {
-        setIsSuperAdmin(true);
-      }
+    if ((user as any).is_admin) {
+      setIsSuperAdmin(true);
+    }
+
+    // Only attempt Supabase fetch if Supabase is actually configured
+    if (isSupabaseConfigured()) {
+      try {
+        const [{ data: p }, { data: roles }] = await Promise.all([
+          supabase.from("profiles").select("*").eq("id", user.id).maybeSingle(),
+          supabase.from("user_roles").select("role").eq("user_id", user.id),
+        ]);
+        if (p) {
+          currentProfile = {
+            ...currentProfile,
+            ...p,
+            balance: Number(p.balance),
+            fuliza_balance: Number(p.fuliza_balance),
+            airtime_balance: Number(p.airtime_balance),
+          };
+        }
+        if (roles?.some((r) => r.role === "super_admin")) {
+          setIsSuperAdmin(true);
+        }
+      } catch {}
     }
 
     setProfile(currentProfile);
@@ -138,7 +142,7 @@ export function useProfile() {
       localStorage.setItem(PROFILE_KEY, JSON.stringify(updated));
     } catch {}
 
-    if (user?.id) {
+    if (isSupabaseConfigured() && user?.id) {
       try {
         await supabase.from("profiles").update(patch).eq("id", user.id);
       } catch {}
