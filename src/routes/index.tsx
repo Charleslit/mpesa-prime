@@ -324,7 +324,7 @@ function BalanceCard({
 }) {
   return (
     <div
-      className={`snap-start shrink-0 ${small ? "w-[80%]" : "w-[92%]"} rounded-2xl bg-card p-4 relative overflow-hidden`}
+      className={`snap-start shrink-0 ${small ? "w-[80%]" : "w-[92%]"} rounded-2xl bg-card p-4 relative overflow-hidden dark:border dark:border-primary/60`}
       style={{ boxShadow: "var(--shadow-card)" }}
     >
       {/* Green → cyan left accent */}
