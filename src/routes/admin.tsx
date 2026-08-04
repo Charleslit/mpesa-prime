@@ -10,6 +10,7 @@ import { useProfile, type ProfileUpdate } from "@/hooks/use-profile";
 import { useContacts } from "@/hooks/use-contacts";
 import { formatKsh } from "@/hooks/use-balance";
 import {
+  verifySubscriberAdminLogin,
   ensureSuperAdmin,
   adminCreateUser,
   adminListUsers,
@@ -49,22 +50,26 @@ function Login() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const bootstrap = useServerFn(ensureSuperAdmin);
+  const verifyLogin = useServerFn(verifySubscriberAdminLogin);
+  const { saveAdminSession } = useSession();
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
     setBusy(true);
     try {
-      // If they're trying the hardcoded super admin creds, make sure the account exists first.
-      if (email.trim().toLowerCase() === "super3momentum@gmail.com") {
-        await bootstrap();
-      }
-      const { error } = await supabase.auth.signInWithPassword({
-        email: email.trim(),
-        password,
+      const res = await verifyLogin({
+        data: {
+          email: email.trim(),
+          password,
+        },
       });
-      if (error) setError(error.message);
+
+      if (res && res.user) {
+        saveAdminSession(res.user);
+      } else {
+        setError("Invalid response from Subscriber Platform");
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Sign-in failed");
     } finally {
@@ -74,7 +79,7 @@ function Login() {
 
   return (
     <MobileFrame>
-      <BackBar title="Admin Sign In" />
+      <BackBar title="Subscriber Admin Sign In" />
       <div className="flex-1 flex flex-col justify-center px-6 pb-10">
         <div
           className="rounded-2xl bg-card p-6 space-y-4"
@@ -83,16 +88,17 @@ function Login() {
           <div>
             <h1 className="text-xl font-bold text-foreground">Sign in</h1>
             <p className="mt-1 text-xs text-muted-foreground">
-              Sign in to manage your M-PESA account.
+              Sign in with your Subscriber Platform admin credentials.
             </p>
           </div>
           <form onSubmit={submit} className="space-y-3">
             <label className="block">
-              <span className="text-xs text-muted-foreground">Email</span>
+              <span className="text-xs text-muted-foreground">Subscriber Admin Email</span>
               <input
                 type="email"
                 required
                 autoComplete="email"
+                placeholder="admin@example.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 className="mt-1 w-full rounded-xl border border-border bg-background px-3 py-3 text-sm focus:outline-none focus:border-primary"
@@ -110,18 +116,18 @@ function Login() {
               />
             </label>
             {error && (
-              <p className="text-xs text-destructive font-medium">{error}</p>
+              <p className="text-xs text-destructive font-medium leading-relaxed">{error}</p>
             )}
             <button
               disabled={busy}
               type="submit"
               className="w-full rounded-xl bg-primary py-3 text-sm font-semibold text-primary-foreground disabled:opacity-60"
             >
-              {busy ? "Signing in…" : "Sign in"}
+              {busy ? "Authenticating with Subscriber API…" : "Sign in"}
             </button>
           </form>
           <p className="text-[11px] text-muted-foreground">
-            Only accounts created by the super admin can sign in. New sign-ups are disabled.
+            Only accounts with Admin permissions on Subscriber Platform can sign in.
           </p>
         </div>
         <Link
@@ -139,10 +145,14 @@ function Dashboard() {
   const navigate = useNavigate();
   const { profile, logoDisplayUrl, isSuperAdmin, reload, update, uploadLogo, clearLogo } =
     useProfile();
+  const { clearAdminSession } = useSession();
   const [tab, setTab] = useState<"profile" | "users">("profile");
 
   const signOut = async () => {
-    await supabase.auth.signOut();
+    clearAdminSession();
+    try {
+      await supabase.auth.signOut();
+    } catch {}
     navigate({ to: "/" });
   };
 

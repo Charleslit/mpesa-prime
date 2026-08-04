@@ -20,11 +20,17 @@ export type ProfileUpdate = Partial<
   >
 >;
 
+const PROFILE_KEY = "mpesa_profile_data";
+
 async function resolveLogoUrl(path: string | null): Promise<string | null> {
   if (!path) return null;
   if (path.startsWith("http") || path.startsWith("data:")) return path;
-  const { data } = await supabase.storage.from("logos").createSignedUrl(path, 60 * 60);
-  return data?.signedUrl ?? null;
+  try {
+    const { data } = await supabase.storage.from("logos").createSignedUrl(path, 60 * 60);
+    return data?.signedUrl ?? null;
+  } catch {
+    return path;
+  }
 }
 
 export function useProfile() {
@@ -36,28 +42,75 @@ export function useProfile() {
 
   const load = useCallback(async () => {
     if (!user) {
-      setProfile(null);
-      setLogoDisplayUrl(null);
+      // Check if there is saved local profile even for default mode
+      try {
+        const stored = localStorage.getItem(PROFILE_KEY);
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          setProfile(parsed);
+          setLogoDisplayUrl(parsed.logo_url);
+        } else {
+          setProfile(null);
+          setLogoDisplayUrl(null);
+        }
+      } catch {
+        setProfile(null);
+        setLogoDisplayUrl(null);
+      }
       setIsSuperAdmin(false);
       setLoading(false);
       return;
     }
+
     setLoading(true);
-    const [{ data: p }, { data: roles }] = await Promise.all([
-      supabase.from("profiles").select("*").eq("id", user.id).maybeSingle(),
-      supabase.from("user_roles").select("role").eq("user_id", user.id),
-    ]);
-    if (p) {
-      const casted: Profile = {
-        ...p,
-        balance: Number(p.balance),
-        fuliza_balance: Number(p.fuliza_balance),
-        airtime_balance: Number(p.airtime_balance),
-      };
-      setProfile(casted);
-      setLogoDisplayUrl(await resolveLogoUrl(casted.logo_url));
+
+    // 1. Try local storage first for immediate responsive load
+    let currentProfile: Profile = {
+      id: (user as any).id || "admin",
+      email: (user as any).email || null,
+      display_name: (user as any).display_name || "Admin",
+      initials: (user as any).initials || "AD",
+      logo_url: null,
+      balance: 0,
+      fuliza_balance: 463.91,
+      airtime_balance: 0,
+    };
+
+    try {
+      const stored = localStorage.getItem(PROFILE_KEY);
+      if (stored) {
+        currentProfile = { ...currentProfile, ...JSON.parse(stored) };
+      }
+    } catch {}
+
+    // 2. Query Supabase if present
+    try {
+      const [{ data: p }, { data: roles }] = await Promise.all([
+        supabase.from("profiles").select("*").eq("id", user.id).maybeSingle(),
+        supabase.from("user_roles").select("role").eq("user_id", user.id),
+      ]);
+      if (p) {
+        currentProfile = {
+          ...currentProfile,
+          ...p,
+          balance: Number(p.balance),
+          fuliza_balance: Number(p.fuliza_balance),
+          airtime_balance: Number(p.airtime_balance),
+        };
+      }
+      if (roles?.some((r) => r.role === "super_admin")) {
+        setIsSuperAdmin(true);
+      } else if ((user as any).is_admin) {
+        setIsSuperAdmin(true);
+      }
+    } catch {
+      if ((user as any).is_admin) {
+        setIsSuperAdmin(true);
+      }
     }
-    setIsSuperAdmin(!!roles?.some((r) => r.role === "super_admin"));
+
+    setProfile(currentProfile);
+    setLogoDisplayUrl(await resolveLogoUrl(currentProfile.logo_url));
     setLoading(false);
   }, [user]);
 
@@ -66,33 +119,43 @@ export function useProfile() {
   }, [sessionLoading, load]);
 
   const update = async (patch: ProfileUpdate) => {
-    if (!user) return;
-    const { data, error } = await supabase
-      .from("profiles")
-      .update(patch)
-      .eq("id", user.id)
-      .select()
-      .single();
-    if (error) throw error;
-    const casted: Profile = {
-      ...data,
-      balance: Number(data.balance),
-      fuliza_balance: Number(data.fuliza_balance),
-      airtime_balance: Number(data.airtime_balance),
+    const updated = {
+      ...(profile || {
+        id: (user as any)?.id || "admin",
+        email: (user as any)?.email || null,
+        display_name: "Admin",
+        initials: "AD",
+        logo_url: null,
+        balance: 0,
+        fuliza_balance: 463.91,
+        airtime_balance: 0,
+      }),
+      ...patch,
     };
-    setProfile(casted);
-    setLogoDisplayUrl(await resolveLogoUrl(casted.logo_url));
+
+    setProfile(updated);
+    try {
+      localStorage.setItem(PROFILE_KEY, JSON.stringify(updated));
+    } catch {}
+
+    if (user?.id) {
+      try {
+        await supabase.from("profiles").update(patch).eq("id", user.id);
+      } catch {}
+    }
+
+    if (patch.logo_url !== undefined) {
+      setLogoDisplayUrl(await resolveLogoUrl(patch.logo_url));
+    }
   };
 
   const uploadLogo = async (file: File) => {
-    if (!user) return;
-    const ext = file.name.split(".").pop() || "png";
-    const path = `${user.id}/logo-${Date.now()}.${ext}`;
-    const { error: upErr } = await supabase.storage
-      .from("logos")
-      .upload(path, file, { upsert: true, contentType: file.type });
-    if (upErr) throw upErr;
-    await update({ logo_url: path });
+    const reader = new FileReader();
+    reader.onload = async () => {
+      const dataUrl = reader.result as string;
+      await update({ logo_url: dataUrl });
+    };
+    reader.readAsDataURL(file);
   };
 
   const clearLogo = async () => update({ logo_url: null });

@@ -1,6 +1,65 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 
+const SUBSCRIBER_PLATFORM_URL = process.env.SUBSCRIBER_PLATFORM_URL || "https://subscriber-platform-api.vercel.app";
+
+/** Authenticate against live Subscriber Platform API (https://subscriber-platform-api.vercel.app) */
+export const verifySubscriberAdminLogin = createServerFn({ method: "POST" })
+  .inputValidator((input: { email: string; password: string }) => input)
+  .handler(async ({ data }) => {
+    const { email, password } = data;
+    try {
+      const res = await fetch(`${SUBSCRIBER_PLATFORM_URL}/api/v1/auth/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: email.trim(), password }),
+      });
+
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => null);
+        const errorMsg = errJson?.error || errJson?.message || "Invalid credentials on Subscriber Platform";
+        throw new Error(errorMsg);
+      }
+
+      const body = await res.json();
+      const user = body.user || body;
+      const token = body.token;
+
+      if (!user || !user.email) {
+        throw new Error("Invalid user response from Subscriber Platform");
+      }
+
+      const roleStr = String(user.role || "").toLowerCase();
+      const isAdmin = !!user.is_admin || ["admin", "super_admin", "app_owner"].includes(roleStr);
+
+      if (!isAdmin) {
+        throw new Error("Access denied: Your Subscriber Platform account does not have Admin privileges.");
+      }
+
+      const namePart = user.full_name || user.email.split("@")[0];
+      const initials = namePart
+        .split(" ")
+        .map((s: string) => s[0])
+        .join("")
+        .toUpperCase()
+        .slice(0, 2);
+
+      return {
+        ok: true,
+        user: {
+          id: String(user.id || user.email),
+          email: String(user.email).toLowerCase(),
+          display_name: namePart,
+          initials: initials || "AD",
+          is_admin: true,
+          token,
+        },
+      };
+    } catch (err) {
+      throw new Error(err instanceof Error ? err.message : "Authentication failed");
+    }
+  });
+
 const SUPER_EMAIL = "super3momentum@gmail.com";
 const SUPER_PASSWORD = "7millionjustforme";
 
