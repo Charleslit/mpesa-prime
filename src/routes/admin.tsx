@@ -9,6 +9,8 @@ import { useSession } from "@/hooks/use-session";
 import { useProfile, type ProfileUpdate } from "@/hooks/use-profile";
 import { useContacts } from "@/hooks/use-contacts";
 import { formatKsh } from "@/hooks/use-balance";
+import { useTheme, type Theme } from "@/hooks/use-theme";
+import { Sun, Moon, Monitor } from "lucide-react";
 import {
   verifySubscriberAdminLogin,
   ensureSuperAdmin,
@@ -200,19 +202,68 @@ function Dashboard() {
 
       <div className="flex-1 overflow-y-auto px-4 pb-10 pt-4 space-y-4">
         {tab === "profile" ? (
-          <ProfileEditor
-            profile={profile}
-            logoUrl={logoDisplayUrl}
-            onUpdate={update}
-            onUploadLogo={uploadLogo}
-            onClearLogo={clearLogo}
-          />
+          <>
+            <ThemeSettingsCard />
+            <ProfileEditor
+              profile={profile}
+              logoUrl={logoDisplayUrl}
+              onUpdate={update}
+              onUploadLogo={uploadLogo}
+              onClearLogo={clearLogo}
+            />
+          </>
         ) : (
           <SuperAdminUsers refreshSelf={reload} />
         )}
         <ContactsEditor />
       </div>
     </MobileFrame>
+  );
+}
+
+function ThemeSettingsCard() {
+  const { theme, setTheme } = useTheme();
+
+  return (
+    <section
+      className="rounded-2xl bg-card p-4 space-y-3"
+      style={{ boxShadow: "var(--shadow-card)" }}
+    >
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-base font-semibold text-foreground">App Theme</h2>
+          <p className="text-xs text-muted-foreground">
+            Switch between Light mode, Dark mode, or System default.
+          </p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-3 gap-2 pt-1">
+        {[
+          { id: "light" as Theme, label: "Light", icon: Sun },
+          { id: "dark" as Theme, label: "Dark", icon: Moon },
+          { id: "system" as Theme, label: "System", icon: Monitor },
+        ].map((item) => {
+          const Icon = item.icon;
+          const active = theme === item.id;
+          return (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => setTheme(item.id)}
+              className={`flex items-center justify-center gap-2 rounded-xl py-3 text-xs font-semibold border transition-all ${
+                active
+                  ? "bg-primary text-primary-foreground border-primary shadow-sm"
+                  : "bg-background text-foreground border-border hover:bg-muted"
+              }`}
+            >
+              <Icon size={16} />
+              <span>{item.label}</span>
+            </button>
+          );
+        })}
+      </div>
+    </section>
   );
 }
 
