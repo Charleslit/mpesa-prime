@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">My oneAPP</string>
+    <string name="title_activity_main">My oneAPP</string>
+    <string name="package_name">app.oneapp.mpesa</string>
+    <string name="custom_url_scheme">app.oneapp.mpesa</string>
+</resources>
